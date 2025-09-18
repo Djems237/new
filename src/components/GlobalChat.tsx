@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send } from 'lucide-react';
+import { Send, Camera } from 'lucide-react';
 import { getFirestore, doc, onSnapshot, collection, addDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
+import { getStorage, ref as storageRef, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 
 // Initialisation de Firebase
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+const appId = 'default-app-id';
+const firebaseConfig = {
   apiKey: "AIzaSyA9fMT5Sj91Z3BzgcF8TvVvocRzide3nNc",
   authDomain: "datascrapr-d6250.firebaseapp.com",
   projectId: "datascrapr-d6250",
@@ -17,19 +18,31 @@ const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__f
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const storage = getStorage(app);
 
-const GlobalChat = ({ currentUserId, currentUserName, onBack }) => {
-  const [messages, setMessages] = useState([]);
-  const [newMessage, setNewMessage] = useState('');
-  const messagesEndRef = useRef(null);
+interface Message {
+  id: string;
+  senderId?: string;
+  senderName?: string;
+  text?: string;
+  createdAt?: { seconds: number; toDate: () => Date };
+}
+
+const GlobalChat = ({ currentUserId, currentUserName, onBack }: { currentUserId: string; currentUserName: string; onBack: () => void }) => {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [newMessage, setNewMessage] = useState<string>('');
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [uploadingImage, setUploadingImage] = useState<boolean>(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const conversationId = 'global';
 
   useEffect(() => {
     const messagesRef = collection(db, 'artifacts', appId, 'public', 'data', 'messages', conversationId, 'chat');
     const unsubscribe = onSnapshot(messagesRef, (snapshot) => {
-      const messagesList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      messagesList.sort((a, b) => a.createdAt?.seconds - b.createdAt?.seconds);
+      const messagesList: Message[] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      messagesList.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
       setMessages(messagesList);
       scrollToBottom();
     });
@@ -40,7 +53,7 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack }) => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const handleSendMessage = async (e) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
     try {
@@ -54,6 +67,46 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack }) => {
       setNewMessage('');
     } catch (error) {
       console.error("Error sending message:", error);
+    }
+  };
+
+  const handleCameraClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setUploadingImage(true);
+      setUploadProgress(0);
+      const filePath = `chat_images/${conversationId}/${Date.now()}_${file.name}`;
+      const imgRef = storageRef(storage, filePath);
+      const uploadTask = uploadBytesResumable(imgRef, file);
+      uploadTask.on('state_changed',
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setUploadProgress(progress);
+        },
+        (error) => {
+          setUploadingImage(false);
+          setUploadProgress(null);
+          console.error('Erreur upload image:', error);
+        },
+        async () => {
+          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+          // Envoi du message avec l'URL de l'image
+          const messagesRef = collection(db, 'artifacts', appId, 'public', 'data', 'messages', conversationId, 'chat');
+          await addDoc(messagesRef, {
+            senderId: currentUserId,
+            senderName: currentUserName,
+            text: '',
+            imageUrl: downloadURL,
+            createdAt: serverTimestamp()
+          });
+          setUploadingImage(false);
+          setUploadProgress(null);
+        }
+      );
     }
   };
 
@@ -88,8 +141,20 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack }) => {
         ))}
         <div ref={messagesEndRef} />
       </div>
+      {uploadingImage && (
+        <div className="w-full mb-2">
+          <div className="h-2 bg-gray-300 rounded-full overflow-hidden">
+            <div className="h-full bg-green-500 transition-all duration-200" style={{ width: `${uploadProgress ?? 0}%` }} />
+          </div>
+          <div className="text-xs text-white mt-1">Envoi de l'image... {Math.round(uploadProgress ?? 0)}%</div>
+        </div>
+      )}
       <form onSubmit={handleSendMessage} className="flex items-center space-x-2">
         <input type="text" value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Write a message..." className="flex-1 pl-4 pr-3 py-2 border border-slate-600 rounded-xl bg-slate-800/50 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" />
+        <button type="button" onClick={handleCameraClick} className="p-3 bg-slate-700 rounded-xl text-white shadow-lg hover:bg-slate-600 transition-colors duration-200">
+          <Camera className="w-5 h-5" />
+        </button>
+        <input type="file" accept="image/*" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} />
         <button type="submit" className="p-3 bg-green-600 rounded-xl text-white shadow-lg hover:bg-green-500 transition-colors duration-200">
           <Send className="w-5 h-5" />
         </button>

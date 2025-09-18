@@ -40,7 +40,7 @@ const AuthForm = ({ onLoginSuccess }) => {
         setFormData(prev => ({ ...prev, country: data.country_name || 'Unknown' }));
       } catch (err) {
         console.error('Error fetching country:', err);
-        setFormData(prev => ({ ...prev, country: 'Unknown' }));
+        setFormData(prev => ({ ...prev, country: 'No Country connect to internet' }));
       }
     };
     fetchCountry();
@@ -147,13 +147,13 @@ const AuthForm = ({ onLoginSuccess }) => {
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <User className="h-5 w-5 text-slate-400 group-focus-within:text-blue-400 transition-colors duration-200" />
               </div>
-              <input type="text" name="nom" value={formData.nom} onChange={handleInputChange} placeholder="Username" required className="block w-full pl-10 pr-3 py-3 border border-slate-600 rounded-xl bg-slate-800/50 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300 transform hover:scale-[1.02] focus:scale-[1.02]" />
+              <input type="text" name="nom" value={formData.nom} onChange={handleInputChange} placeholder="Username" title='Your Name' required className="block w-full pl-10 pr-3 py-3 border border-slate-600 rounded-xl bg-slate-800/50 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300 transform hover:scale-[1.02] focus:scale-[1.02]" />
             </div>
             <div className="relative group">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <KeySquare className="h-5 w-5 text-slate-400 group-focus-within:text-blue-400 transition-colors duration-200" />
               </div>
-              <input type="password" name="password" value={formData.password} onChange={handleInputChange} placeholder="Password" required className="block w-full pl-10 pr-3 py-3 border border-slate-600 rounded-xl bg-slate-800/50 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300 transform hover:scale-[1.02] focus:scale-[1.02]" />
+              <input type="password" name="password" value={formData.password} onChange={handleInputChange} placeholder="Password" title='Your password' required className="block w-full pl-10 pr-3 py-3 border border-slate-600 rounded-xl bg-slate-800/50 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300 transform hover:scale-[1.02] focus:scale-[1.02]" />
             </div>
             {!isLogin && (
               <div className="relative group transform transition-all duration-500 animate-fadeIn">
@@ -164,7 +164,7 @@ const AuthForm = ({ onLoginSuccess }) => {
               </div>
             )}
             <button type="submit" disabled={loading} className="w-full py-3 px-4 bg-gradient-to-r from-silver-500 via-slate-600 to-blue-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-[1.02] hover:-translate-y-1 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-blue-500/50 active:scale-[0.98] relative overflow-hidden group disabled:opacity-50 disabled:cursor-not-allowed">
-              <span className="relative z-10">
+              <span title='Click here to Sign Up' className="relative z-10">
                 {loading ? 'Loading...' : (isLogin ? 'Login' : 'Sign Up')}
               </span>
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
