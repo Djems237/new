@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Camera } from 'lucide-react';
-import { getFirestore, doc, onSnapshot, collection, addDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { Send, Camera, Trash2, Edit2 } from 'lucide-react';
+import { getFirestore, doc, onSnapshot, collection, addDoc, serverTimestamp, setDoc, deleteDoc } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
-import { getStorage, ref as storageRef, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { getStorage } from 'firebase/storage';
 
 // Initialisation de Firebase
 const appId = 'default-app-id';
@@ -18,23 +18,39 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-const storage = getStorage(app);
+
+const CLOUDINARY_CLOUD_NAME = 'demhlpk5q';
+const CLOUDINARY_UPLOAD_PRESET = 'new_appchat'; // Remplace par le nom de ton preset non signé
 
 interface Message {
   id: string;
   senderId?: string;
   senderName?: string;
   text?: string;
+  imageUrl?: string;
+  videoUrl?: string;
   createdAt?: { seconds: number; toDate: () => Date };
 }
 
-const GlobalChat = ({ currentUserId, currentUserName, onBack }: { currentUserId: string; currentUserName: string; onBack: () => void }) => {
+interface GlobalChatProps {
+  currentUserId: string;
+  currentUserName: string;
+  onBack: () => void;
+  onStartPrivateChat: (userName: string) => void;
+}
+
+const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat }: GlobalChatProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState<string>('');
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadingImage, setUploadingImage] = useState<boolean>(false);
+  const [showCancel, setShowCancel] = useState(false);
+  const [hoveredMsgId, setHoveredMsgId] = useState<string | null>(null);
+  const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
+  const [editText, setEditText] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const xhrRef = useRef<XMLHttpRequest | null>(null);
 
   const conversationId = 'global';
 
@@ -79,35 +95,84 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack }: { currentUserId:
     if (file) {
       setUploadingImage(true);
       setUploadProgress(0);
-      const filePath = `chat_images/${conversationId}/${Date.now()}_${file.name}`;
-      const imgRef = storageRef(storage, filePath);
-      const uploadTask = uploadBytesResumable(imgRef, file);
-      uploadTask.on('state_changed',
-        (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+      setShowCancel(false);
+      const isImage = file.type.startsWith('image/');
+      const isVideo = file.type.startsWith('video/');
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+      // Envoi vers Cloudinary
+      const xhr = new XMLHttpRequest();
+      xhrRef.current = xhr;
+      xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${isImage ? 'image' : 'video'}/upload`, true);
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const progress = (event.loaded / event.total) * 100;
           setUploadProgress(progress);
-        },
-        (error) => {
-          setUploadingImage(false);
-          setUploadProgress(null);
-          console.error('Erreur upload image:', error);
-        },
-        async () => {
-          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-          // Envoi du message avec l'URL de l'image
+        }
+      };
+      xhr.onload = async () => {
+        if (xhr.status === 200) {
+          const response = JSON.parse(xhr.responseText);
+          const downloadURL = response.secure_url;
           const messagesRef = collection(db, 'artifacts', appId, 'public', 'data', 'messages', conversationId, 'chat');
           await addDoc(messagesRef, {
             senderId: currentUserId,
             senderName: currentUserName,
             text: '',
-            imageUrl: downloadURL,
+            imageUrl: isImage ? downloadURL : '',
+            videoUrl: isVideo ? downloadURL : '',
             createdAt: serverTimestamp()
           });
-          setUploadingImage(false);
-          setUploadProgress(null);
+        } else {
+          console.error('Erreur upload Cloudinary:', xhr.responseText);
         }
-      );
+        setUploadingImage(false);
+        setUploadProgress(null);
+        setShowCancel(false);
+        xhrRef.current = null;
+      };
+      xhr.onerror = () => {
+        setUploadingImage(false);
+        setUploadProgress(null);
+        setShowCancel(false);
+        xhrRef.current = null;
+        console.error('Erreur upload Cloudinary');
+      };
+      xhr.send(formData);
     }
+  };
+
+  const handleCancelUpload = () => {
+    if (xhrRef.current) {
+      xhrRef.current.abort();
+      setUploadingImage(false);
+      setUploadProgress(null);
+      setShowCancel(false);
+      xhrRef.current = null;
+    }
+  };
+
+  const handleDeleteMessage = async (msgId: string) => {
+    const msgRef = doc(db, 'artifacts', appId, 'public', 'data', 'messages', conversationId, 'chat', msgId);
+    await deleteDoc(msgRef);
+  };
+
+  const handleEditMessage = (msg: Message) => {
+    setEditingMsgId(msg.id);
+    setEditText(msg.text || '');
+  };
+
+  const handleSaveEdit = async (msgId: string) => {
+    const msgRef = doc(db, 'artifacts', appId, 'public', 'data', 'messages', conversationId, 'chat', msgId);
+    await setDoc(msgRef, { text: editText }, { merge: true });
+    setEditingMsgId(null);
+    setEditText('');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMsgId(null);
+    setEditText('');
   };
 
   return (
@@ -127,24 +192,74 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack }: { currentUserId:
       </div>
       <div className="flex-1 overflow-y-auto my-4 space-y-4">
         {messages.map((msg, index) => (
-          <div key={index} className={`flex ${msg.senderId === currentUserId ? 'justify-end' : 'justify-start'}`}>
-            <div className={`p-3 rounded-xl max-w-xs md:max-w-md break-words ${msg.senderId === currentUserId ? 'bg-green-600 text-white rounded-br-none' : 'bg-gray-700 text-white rounded-bl-none'}`}>
+          <div
+            key={index}
+            className={`flex ${msg.senderId === currentUserId ? 'justify-end' : 'justify-start'}`}
+            onMouseEnter={() => setHoveredMsgId(msg.id)}
+            onMouseLeave={() => setHoveredMsgId(null)}
+          >
+            <div className={`p-3 rounded-xl max-w-xs md:max-w-md break-words relative ${msg.senderId === currentUserId ? 'bg-green-600 text-white rounded-br-none' : 'bg-gray-700 text-white rounded-bl-none'}`}>
               <div className="flex items-center mb-1">
-                <span className="font-bold text-xs mr-2">{msg.senderName || msg.senderId}</span>
+                <button
+                  className="font-bold text-xs mr-2 hover:underline hover:text-blue-400"
+                  onClick={() => msg.senderId !== currentUserId && onStartPrivateChat(msg.senderName || msg.senderId || '')}
+                  disabled={msg.senderId === currentUserId}
+                  title={msg.senderId === currentUserId ? 'Ceci est vous' : 'Démarrer un chat privé'}
+                >
+                  {msg.senderName || msg.senderId}
+                </button>
                 <span className="block text-right text-xs text-gray-400">
                   {msg.createdAt?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
               </div>
-              <p className="text-sm">{msg.text}</p>
+              {editingMsgId === msg.id ? (
+                <div className="flex flex-col space-y-2">
+                  <input type="text" value={editText} onChange={e => setEditText(e.target.value)} className="text-black p-1 rounded" />
+                  <div className="flex space-x-2">
+                    <button onClick={() => handleSaveEdit(msg.id)} className="px-2 py-1 bg-green-500 text-white rounded">Sauvegarder</button>
+                    <button onClick={handleCancelEdit} className="px-2 py-1 bg-gray-500 text-white rounded">Annuler</button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {msg.text && <p className="text-sm">{msg.text}</p>}
+                  {msg.imageUrl && (
+                    <img src={msg.imageUrl} alt="envoyé" className="mt-2 rounded-lg max-w-full max-h-60" />
+                  )}
+                  {msg.videoUrl && (
+                    <video controls className="mt-2 rounded-lg max-w-full max-h-60">
+                      <source src={msg.videoUrl} type="video/mp4" />
+                      Votre navigateur ne supporte pas la vidéo.
+                    </video>
+                  )}
+                </>
+              )}
+              {msg.senderId === currentUserId && hoveredMsgId === msg.id && (
+                <div className="absolute top-2 right-2 flex space-x-2">
+                  <button onClick={() => handleDeleteMessage(msg.id)} className="bg-red-600 p-1 rounded hover:bg-red-700" title="Supprimer">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                  {msg.text && !msg.imageUrl && !msg.videoUrl && (
+                    <button onClick={() => handleEditMessage(msg)} className="bg-blue-600 p-1 rounded hover:bg-blue-700" title="Modifier">
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         ))}
         <div ref={messagesEndRef} />
       </div>
       {uploadingImage && (
-        <div className="w-full mb-2">
-          <div className="h-2 bg-gray-300 rounded-full overflow-hidden">
+        <div className="w-full mb-2" onMouseEnter={() => setShowCancel(true)} onMouseLeave={() => setShowCancel(false)}>
+          <div className="h-2 bg-gray-300 rounded-full overflow-hidden relative">
             <div className="h-full bg-green-500 transition-all duration-200" style={{ width: `${uploadProgress ?? 0}%` }} />
+            {showCancel && (
+              <button onClick={handleCancelUpload} className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-red-600 text-white text-xs rounded shadow hover:bg-red-700 transition-colors duration-200">
+                Annuler l'envoi
+              </button>
+            )}
           </div>
           <div className="text-xs text-white mt-1">Envoi de l'image... {Math.round(uploadProgress ?? 0)}%</div>
         </div>
@@ -154,7 +269,7 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack }: { currentUserId:
         <button type="button" onClick={handleCameraClick} className="p-3 bg-slate-700 rounded-xl text-white shadow-lg hover:bg-slate-600 transition-colors duration-200">
           <Camera className="w-5 h-5" />
         </button>
-        <input type="file" accept="image/*" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} />
+        <input type="file" accept="image/*,video/*" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} />
         <button type="submit" className="p-3 bg-green-600 rounded-xl text-white shadow-lg hover:bg-green-500 transition-colors duration-200">
           <Send className="w-5 h-5" />
         </button>

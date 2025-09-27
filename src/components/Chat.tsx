@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Send } from 'lucide-react';
 import { getFirestore, doc, onSnapshot, collection, addDoc, serverTimestamp, setDoc } from 'firebase/firestore';
@@ -19,6 +18,14 @@ const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__f
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
+// Interface pour les messages
+interface Message {
+  senderName: string;
+  text: string;
+  createdAt: any;
+  // ...autres champs si besoin
+}
+
 const Chat = ({ currentUserId, selectedUser, onBack }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
@@ -28,6 +35,7 @@ const Chat = ({ currentUserId, selectedUser, onBack }) => {
   const readStatusTimeoutRef = useRef(null);
 
   const conversationId = [currentUserId, selectedUser.id].sort().join('_');
+  const currentUserName = "Current User"; // Replace with actual current user name if available
 
   useEffect(() => {
     const messagesRef = collection(db, 'artifacts', appId, 'public', 'data', 'messages', conversationId, 'chat');
@@ -127,13 +135,23 @@ const Chat = ({ currentUserId, selectedUser, onBack }) => {
         </div>
       </div>
       <div className="flex-1 overflow-y-auto my-4 space-y-4">
-        {messages.map((msg, index) => (
-          <div key={index} className={`flex ${msg.senderId === currentUserId ? 'justify-end' : 'justify-start'}`}>
-            <div className={`p-3 rounded-xl max-w-xs md:max-w-md break-words ${msg.senderId === currentUserId ? 'bg-blue-600 text-white rounded-br-none' : 'bg-gray-700 text-white rounded-bl-none'}`}>
-              <p className="text-sm">{msg.text}</p>
-              <span className="block text-right text-xs text-gray-400 mt-1">
-                {msg.createdAt?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
+        {messages.map((msg, idx) => (
+          <div
+            key={idx}
+            className={`flex ${msg.senderName === currentUserName ? 'justify-end' : 'justify-start'}`}
+          >
+            <div
+              className={`p-3 rounded-xl max-w-xs md:max-w-md break-words relative
+                ${msg.senderName === currentUserName ? 'bg-green-600 text-white rounded-br-none' : 'bg-gray-700 text-white rounded-bl-none'}`}
+            >
+              <div className="flex items-center mb-1">
+                <span className="font-bold text-xs mr-2">{msg.senderName}</span>
+                <span className="block text-right text-xs text-gray-400">
+                  {msg.createdAt?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+              {msg.text && <p className="text-sm">{msg.text}</p>}
+              {/* ...autres contenus (image, vidéo)... */}
             </div>
           </div>
         ))}
