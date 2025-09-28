@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Camera, Trash2, Edit2 } from 'lucide-react';
+import { Send, Camera, Trash2, Edit2, Mic } from 'lucide-react';
 import { getFirestore, doc, onSnapshot, collection, addDoc, serverTimestamp, setDoc, deleteDoc } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
 import { getStorage } from 'firebase/storage';
@@ -29,6 +29,7 @@ interface Message {
   text?: string;
   imageUrl?: string;
   videoUrl?: string;
+  audioUrl?: string;
   createdAt?: { seconds: number; toDate: () => Date };
 }
 
@@ -48,9 +49,14 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat
   const [hoveredMsgId, setHoveredMsgId] = useState<string | null>(null);
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
   const [editText, setEditText] = useState<string>('');
+  const [recording, setRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
+  const [recordTime, setRecordTime] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
+  const recordTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const conversationId = 'global';
 
@@ -175,6 +181,70 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat
     setEditText('');
   };
 
+  const handleStartRecording = async () => {
+    if (!navigator.mediaDevices) return;
+    setRecording(true);
+    setRecordTime(0);
+    setAudioChunks([]);
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const recorder = new MediaRecorder(stream);
+    setMediaRecorder(recorder);
+    recorder.ondataavailable = (e) => setAudioChunks((prev) => [...prev, e.data]);
+    recorder.onstop = () => {
+      stream.getTracks().forEach(track => track.stop());
+    };
+    recorder.start();
+    recordTimerRef.current = setInterval(() => setRecordTime(t => t + 1), 1000);
+  };
+
+  const handleStopRecording = () => {
+    if (mediaRecorder && recording) {
+      mediaRecorder.stop();
+      setRecording(false);
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+    }
+  };
+
+  const handleSendAudio = async () => {
+    if (audioChunks.length === 0) return;
+    setUploadingImage(true);
+    setUploadProgress(0);
+    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+    const formData = new FormData();
+    formData.append('file', audioBlob);
+    formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+    const xhr = new XMLHttpRequest();
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        setUploadProgress((event.loaded / event.total) * 100);
+      }
+    };
+    xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`, true);
+    xhr.onload = async () => {
+      setUploadingImage(false);
+      setUploadProgress(null);
+      if (xhr.status === 200) {
+        const response = JSON.parse(xhr.responseText);
+        const downloadURL = response.secure_url;
+        const messagesRef = collection(db, 'artifacts', appId, 'public', 'data', 'messages', conversationId, 'chat');
+        await addDoc(messagesRef, {
+          senderId: currentUserId,
+          senderName: currentUserName,
+          text: '',
+          audioUrl: downloadURL,
+          createdAt: serverTimestamp()
+        });
+        setAudioChunks([]);
+        setRecordTime(0);
+      }
+    };
+    xhr.onerror = () => {
+      setUploadingImage(false);
+      setUploadProgress(null);
+    };
+    xhr.send(formData);
+  };
+
   return (
     <div className="relative w-full h-full flex flex-col bg-white/10 backdrop-blur-lg rounded-2xl p-4 shadow-2xl border border-white/20">
       <div className="flex items-center space-x-2 pb-4 border-b border-white/20">
@@ -232,6 +302,12 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat
                       Votre navigateur ne supporte pas la vidéo.
                     </video>
                   )}
+                  {msg.audioUrl && (
+                    <audio controls className="mt-2 rounded-lg max-w-full">
+                      <source src={msg.audioUrl} type="audio/webm" />
+                      Votre navigateur ne supporte pas l'audio.
+                    </audio>
+                  )}
                 </>
               )}
               {msg.senderId === currentUserId && hoveredMsgId === msg.id && (
@@ -239,7 +315,7 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat
                   <button onClick={() => handleDeleteMessage(msg.id)} className="bg-red-600 p-1 rounded hover:bg-red-700" title="Supprimer">
                     <Trash2 className="w-4 h-4" />
                   </button>
-                  {msg.text && !msg.imageUrl && !msg.videoUrl && (
+                  {msg.text && !msg.imageUrl && !msg.videoUrl && !msg.audioUrl && (
                     <button onClick={() => handleEditMessage(msg)} className="bg-blue-600 p-1 rounded hover:bg-blue-700" title="Modifier">
                       <Edit2 className="w-4 h-4" />
                     </button>
@@ -269,10 +345,27 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat
           <Camera className="w-5 h-5" />
         </button>
         <input type="file" accept="image/*,video/*" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} />
-        <input type="text" value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Write a message..." className="flex-1 min-w-0 pl-4 pr-3 py-2 border border-slate-600 rounded-xl bg-slate-800/50 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" />
-        <button type="submit" className="p-3 bg-green-600 rounded-xl text-white shadow-lg hover:bg-green-500 transition-colors duration-200 border-2 border-green-400 focus:outline-none focus:ring-2 focus:ring-green-400 flex-shrink-0">
+        <button
+          type="button"
+          onClick={recording ? handleStopRecording : handleStartRecording}
+          className={`p-3 rounded-xl text-white shadow-lg flex-shrink-0 ${recording ? 'bg-red-600' : 'bg-blue-600'} hover:bg-blue-500 transition-colors duration-200`}
+          title={recording ? 'Arrêter' : 'Message vocal'}
+          disabled={uploadingImage}
+        >
+          <Mic className="w-5 h-5" />
+        </button>
+        <input type="text" value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Write a message..." className="flex-1 min-w-0 pl-4 pr-3 py-2 border border-slate-600 rounded-xl bg-slate-800/50 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" disabled={recording} />
+        <button
+          type={recording ? 'button' : 'submit'}
+          onClick={recording ? handleSendAudio : undefined}
+          className="p-3 bg-green-600 rounded-xl text-white shadow-lg hover:bg-green-500 transition-colors duration-200 border-2 border-green-400 focus:outline-none focus:ring-2 focus:ring-green-400 flex-shrink-0"
+          disabled={uploadingImage || (recording && audioChunks.length === 0)}
+        >
           <Send className="w-5 h-5" />
         </button>
+        {recording && (
+          <span className="ml-2 text-red-400 font-bold">{recordTime}s</span>
+        )}
       </form>
     </div>
   );
