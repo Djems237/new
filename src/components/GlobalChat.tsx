@@ -265,11 +265,11 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat
         </div>
       )}
       <form onSubmit={handleSendMessage} className="flex items-center space-x-2 mt-2 bg-slate-900/60 rounded-xl p-2 shadow-inner border border-green-600">
-        <input type="text" value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Write a message..." className="flex-1 pl-4 pr-3 py-2 border border-slate-600 rounded-xl bg-slate-800/50 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" />
-        <button type="button" onClick={handleCameraClick} className="p-3 bg-slate-700 rounded-xl text-white shadow-lg hover:bg-slate-600 transition-colors duration-200">
+        <button type="button" onClick={handleCameraClick} className="p-3 bg-slate-700 rounded-xl text-white shadow-lg hover:bg-slate-600 transition-colors duration-200" title="Envoyer une image ou vidéo">
           <Camera className="w-5 h-5" />
         </button>
         <input type="file" accept="image/*,video/*" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} />
+        <input type="text" value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Write a message..." className="flex-1 pl-4 pr-3 py-2 border border-slate-600 rounded-xl bg-slate-800/50 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" />
         <button type="submit" className="p-3 bg-green-600 rounded-xl text-white shadow-lg hover:bg-green-500 transition-colors duration-200 border-2 border-green-400 focus:outline-none focus:ring-2 focus:ring-green-400">
           <Send className="w-5 h-5" />
         </button>
