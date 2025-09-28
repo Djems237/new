@@ -316,4 +316,11 @@ const App = () => {
   );
 };
 
+// Utilise toujours le même identifiant pour la conversation (name ou id)
+// Exemple à utiliser dans Chat.tsx et pour la lecture/écriture des messages :
+// const userA = currentUser.name || currentUser.id;
+// const userB = selectedUser.name || selectedUser.id;
+// const conversationId = [userA, userB].sort().join('_');
+// Utilise conversationId pour lire/écrire les messages Firestore
+
 export default App;
