@@ -206,7 +206,7 @@ const App = () => {
         return (
           <div className="flex flex-col md:flex-row h-full gap-4">
             <div className="w-full md:w-2/3 h-full">
-              <UserList users={allUsers.filter(u => currentUser && u.name !== currentUser.name)} onUserSelect={handleUserSelect} title="All Users" />
+              <UserList users={allUsers.filter(u => currentUser && u.name !== currentUser.name)} onUserSelect={handleUserSelect} title="All utilisateurs" />
             </div>
           </div>
         );
