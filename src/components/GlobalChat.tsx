@@ -337,7 +337,7 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat
               </button>
             )}
           </div>
-          <div className="text-xs text-white mt-1">Envoi de l'image... {Math.round(uploadProgress ?? 0)}%</div>
+          <div className="text-xs text-white mt-1">Envoi en cours... {Math.round(uploadProgress ?? 0)}%</div>
         </div>
       )}
       <form onSubmit={handleSendMessage} className="flex items-center space-x-2 mt-2 bg-slate-900/60 rounded-xl p-2 shadow-inner border border-green-600 w-full max-w-full">
@@ -356,10 +356,10 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat
         </button>
         <input type="text" value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Write a message..." className="flex-1 min-w-0 pl-4 pr-3 py-2 border border-slate-600 rounded-xl bg-slate-800/50 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" disabled={recording} />
         <button
-          type={recording ? 'button' : 'submit'}
-          onClick={recording ? handleSendAudio : undefined}
+          type="button"
+          onClick={audioChunks.length > 0 && !recording ? handleSendAudio : undefined}
           className="p-3 bg-green-600 rounded-xl text-white shadow-lg hover:bg-green-500 transition-colors duration-200 border-2 border-green-400 focus:outline-none focus:ring-2 focus:ring-green-400 flex-shrink-0"
-          disabled={uploadingImage || (recording && audioChunks.length === 0)}
+          disabled={uploadingImage || (recording || audioChunks.length === 0)}
         >
           <Send className="w-5 h-5" />
         </button>
