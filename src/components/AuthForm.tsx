@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MessageCircle, User, Globe, KeySquare } from 'lucide-react';
+import { MessageCircle, User, Globe, KeySquare, ArrowLeft } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, setDoc, getDocs, collection, query, where, serverTimestamp } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
@@ -20,7 +20,7 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-const AuthForm = ({ onLoginSuccess }) => {
+const AuthForm = ({ onLoginSuccess, onBack }) => {
   const [isLogin, setIsLogin] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -105,6 +105,13 @@ const AuthForm = ({ onLoginSuccess }) => {
 
   return (
     <div className="relative w-full max-w-md">
+      <button 
+        onClick={onBack} 
+        className="absolute left-0 top-0 p-2 text-white hover:text-blue-400 transition-colors duration-200"
+        title="Retour"
+      >
+        <ArrowLeft className="w-6 h-6" />
+      </button>
       <div className="text-center mb-8">
         <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-silver-400 to-blue-500 rounded-xl shadow-2xl mb-4 transform hover:scale-110 transition-transform duration-300">
           <MessageCircle className="w-8 h-8 text-white" />
