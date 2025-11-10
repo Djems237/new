@@ -58,6 +58,40 @@ interface User {
 //   return snap.docs.map(doc => doc.id);
 // }
 
+// Ajout : ErrorBoundary pour attraper les erreurs React et affichage d'un fallback lisible
+class ErrorBoundary extends React.Component<any, { hasError: boolean; error?: Error | null; info?: React.ErrorInfo | null }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null, info: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    // log pour debug
+    console.error('ErrorBoundary caught error:', error, info);
+    this.setState({ error, info });
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 20, color: '#fff', background: '#2b2b2b', height: '100vh', boxSizing: 'border-box' }}>
+          <h2>Une erreur est survenue</h2>
+          <pre style={{ whiteSpace: 'pre-wrap', color: '#ffdddd' }}>{this.state.error?.message}</pre>
+          <details style={{ color: '#ddd', marginTop: 8 }}>
+            {this.state.info?.componentStack}
+          </details>
+          <button onClick={() => window.location.reload()} style={{ marginTop: 12, padding: '8px 12px' }}>Recharger</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const App = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -68,6 +102,7 @@ const App = () => {
   const [currentPage, setCurrentPage] = useState<string>('home');
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [showGlobalChat, setShowGlobalChat] = useState(false);
+  const [globalRuntimeError, setGlobalRuntimeError] = useState<{ message: string; stack?: string } | null>(null);
 
   useEffect(() => {
     // Ne pas faire de connexion automatique ici, laisser AuthForm gérer la connexion
@@ -229,90 +264,124 @@ const App = () => {
     }
   };
 
-  return (
-    <div className="relative w-screen h-screen bg-slate-900 overflow-hidden flex items-center justify-center p-4">
-      <div className="absolute inset-0 z-0 bg-cover bg-center" style={{ backgroundImage: "url('https://placehold.co/1920x1080/1a202c/6495ED?text=Metal+Background')" }}>
-        <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-3xl"></div>
+  useEffect(() => {
+    // Ecoute des erreurs globales hors React
+    const onError = (event: ErrorEvent) => {
+      console.error('Global error caught:', event.error || event.message);
+      setGlobalRuntimeError({ message: (event.error && event.error.message) || event.message, stack: event.error?.stack });
+    };
+    const onRejection = (event: PromiseRejectionEvent) => {
+      console.error('Unhandled rejection:', event.reason);
+      const reason = event.reason instanceof Error ? event.reason : { message: String(event.reason) };
+      setGlobalRuntimeError({ message: reason.message || String(event.reason), stack: reason.stack });
+    };
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onRejection as any);
+
+    return () => {
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onRejection as any);
+    };
+  }, []);
+
+  // Si une erreur runtime globale a été capturée, afficher un panneau d'erreur (évite page blanche)
+  if (globalRuntimeError) {
+    return (
+      <div style={{ padding: 20, color: '#fff', background: '#111827', minHeight: '100vh', boxSizing: 'border-box' }}>
+        <h2>Erreur runtime détectée</h2>
+        <pre style={{ whiteSpace: 'pre-wrap', color: '#ffdddd' }}>{globalRuntimeError.message}</pre>
+        <pre style={{ whiteSpace: 'pre-wrap', color: '#ddd' }}>{globalRuntimeError.stack}</pre>
+        <button onClick={() => window.location.reload()} style={{ marginTop: 12, padding: '8px 12px' }}>Recharger</button>
       </div>
-      <div className={`relative z-10 w-full h-full max-w-7xl flex flex-col md:flex-row gap-4 ${isMobile ? 'pb-16' : ''}`}>
-        {isLoggedIn && !isMobile && (
-          <div className="w-full md:w-1/4 h-full flex flex-col gap-4">
-            <div className="bg-slate-800/50 backdrop-blur-lg rounded-2xl p-4 shadow-2xl border border-white/20 text-center">
-              <div className="w-16 h-16 rounded-full bg-gradient-to-r from-silver-400 to-blue-500 flex items-center justify-center text-white font-bold text-3xl mx-auto mb-2">
-                {currentUser?.name[0].toUpperCase()}
-              </div>
-              <h1 className="text-xl font-bold text-white">{currentUser?.name}</h1>
-              <p className="text-sm text-slate-400 break-words">{currentUser?.name}</p>
-              <p className="text-xs text-slate-500">{currentUser?.country}</p>
-            </div>
-            <div className="bg-slate-800/50 backdrop-blur-lg rounded-2xl p-2 shadow-2xl border border-white/20 flex flex-col space-y-2">
-              <button onClick={() => handlePageChange('home')} className={`flex items-center space-x-3 w-full p-3 rounded-xl transition-colors duration-200 ${currentPage === 'home' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700/50'}`}>
-                <Home className="w-5 h-5" />
-                <span className="font-medium">Home</span>
-              </button>
-              <button onClick={() => handlePageChange('messages')} className={`flex items-center space-x-3 w-full p-3 rounded-xl transition-colors duration-200 ${currentPage === 'messages' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700/50'}`}>
-                <Bell className="w-5 h-5" />
-                <span className="font-medium">New Messages</span>
-                {Object.keys(unreadCounts).length > 0 && (
-                  <span className="ml-auto bg-red-500 text-white text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center">{Object.keys(unreadCounts).length}</span>
-                )}
-              </button>
-              <button onClick={() => handlePageChange('settings')} className={`flex items-center space-x-3 w-full p-3 rounded-xl transition-colors duration-200 ${currentPage === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700/50'}`}>
-                <Settings className="w-5 h-5" />
-                <span className="font-medium">Settings</span>
-              </button>
-              <button onClick={() => setShowGlobalChat(true)} className={`flex items-center space-x-3 w-full p-3 rounded-xl transition-colors duration-200 ${showGlobalChat ? 'bg-green-600 text-white' : 'text-slate-400 hover:bg-slate-700/50'}`}>
-                <span className="w-5 h-5 flex items-center justify-center"><svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="10" cy="10" r="8" /><path d="M8 10h4" /><path d="M10 8v4" /></svg></span>
-                <span className="font-medium">Global chat</span>
-              </button>
-            </div>
-          </div>
-        )}
+    );
+  }
 
-        <div className="flex-1 h-full overflow-y-auto">
-          {showGlobalChat ? (
-            <GlobalChat
-              currentUserId={currentUser ? currentUser.name : ''}
-              currentUserName={currentUser ? currentUser.name : ''}
-              onBack={() => setShowGlobalChat(false)}
-              onStartPrivateChat={handleStartPrivateChat}
-            />
-          ) : (
-            renderContent()
-          )}
+  return (
+    <ErrorBoundary>
+      <div className="relative w-screen h-screen bg-slate-900 overflow-hidden flex items-center justify-center p-4">
+        <div className="absolute inset-0 z-0 bg-cover bg-center" style={{ backgroundImage: "url('https://placehold.co/1920x1080/1a202c/6495ED?text=Metal+Background')" }}>
+          <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-3xl"></div>
         </div>
+        <div className={`relative z-10 w-full h-full max-w-7xl flex flex-col md:flex-row gap-4 ${isMobile ? 'pb-16' : ''}`}>
+          {isLoggedIn && !isMobile && (
+            <div className="w-full md:w-1/4 h-full flex flex-col gap-4">
+              <div className="bg-slate-800/50 backdrop-blur-lg rounded-2xl p-4 shadow-2xl border border-white/20 text-center">
+                <div className="w-16 h-16 rounded-full bg-gradient-to-r from-silver-400 to-blue-500 flex items-center justify-center text-white font-bold text-3xl mx-auto mb-2">
+                  {currentUser?.name[0].toUpperCase()}
+                </div>
+                <h1 className="text-xl font-bold text-white">{currentUser?.name}</h1>
+                <p className="text-sm text-slate-400 break-words">{currentUser?.name}</p>
+                <p className="text-xs text-slate-500">{currentUser?.country}</p>
+              </div>
+              <div className="bg-slate-800/50 backdrop-blur-lg rounded-2xl p-2 shadow-2xl border border-white/20 flex flex-col space-y-2">
+                <button onClick={() => handlePageChange('home')} className={`flex items-center space-x-3 w-full p-3 rounded-xl transition-colors duration-200 ${currentPage === 'home' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700/50'}`}>
+                  <Home className="w-5 h-5" />
+                  <span className="font-medium">Home</span>
+                </button>
+                <button onClick={() => handlePageChange('messages')} className={`flex items-center space-x-3 w-full p-3 rounded-xl transition-colors duration-200 ${currentPage === 'messages' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700/50'}`}>
+                  <Bell className="w-5 h-5" />
+                  <span className="font-medium">New Messages</span>
+                  {Object.keys(unreadCounts).length > 0 && (
+                    <span className="ml-auto bg-red-500 text-white text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center">{Object.keys(unreadCounts).length}</span>
+                  )}
+                </button>
+                <button onClick={() => handlePageChange('settings')} className={`flex items-center space-x-3 w-full p-3 rounded-xl transition-colors duration-200 ${currentPage === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700/50'}`}>
+                  <Settings className="w-5 h-5" />
+                  <span className="font-medium">Settings</span>
+                </button>
+                <button onClick={() => setShowGlobalChat(true)} className={`flex items-center space-x-3 w-full p-3 rounded-xl transition-colors duration-200 ${showGlobalChat ? 'bg-green-600 text-white' : 'text-slate-400 hover:bg-slate-700/50'}`}>
+                  <span className="w-5 h-5 flex items-center justify-center"><svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="10" cy="10" r="8" /><path d="M8 10h4" /><path d="M10 8v4" /></svg></span>
+                  <span className="font-medium">Global chat</span>
+                </button>
+              </div>
+            </div>
+          )}
 
-        {isLoggedIn && selectedUser && !isMobile && !showGlobalChat && (
-          <div className="w-full md:w-2/3 h-full">
-            <Chat currentUserId={currentUser.name} selectedUser={selectedUser} onBack={() => setSelectedUser(null)} />
+          <div className="flex-1 h-full overflow-y-auto">
+            {showGlobalChat ? (
+              <GlobalChat
+                currentUserId={currentUser ? currentUser.name : ''}
+                currentUserName={currentUser ? currentUser.name : ''}
+                onBack={() => setShowGlobalChat(false)}
+                onStartPrivateChat={handleStartPrivateChat}
+              />
+            ) : (
+              renderContent()
+            )}
           </div>
-        )}
 
-        {isLoggedIn && isMobile && !showGlobalChat && (
-          <div className="fixed bottom-0 left-0 right-0 bg-slate-800/50 backdrop-blur-lg border-t border-white/20 p-2 flex justify-around">
-            <button onClick={() => handlePageChange('home')} className={`relative flex flex-col items-center space-y-1 p-2 rounded-xl transition-colors duration-200 ${currentPage === 'home' ? 'text-blue-400' : 'text-slate-400 hover:bg-slate-700/50'}`}>
-              <Home className="w-6 h-6" />
-              <span className="text-xs font-medium">Home</span>
-            </button>
-            <button onClick={() => handlePageChange('messages')} className={`relative flex flex-col items-center space-y-1 p-2 rounded-xl transition-colors duration-200 ${currentPage === 'messages' ? 'text-blue-400' : 'text-slate-400 hover:bg-slate-700/50'}`}>
-              <Bell className="w-6 h-6" />
-              <span className="text-xs font-medium">Messages</span>
-              {Object.keys(unreadCounts).length > 0 && (
+          {isLoggedIn && selectedUser && !isMobile && !showGlobalChat && (
+            <div className="w-full md:w-2/3 h-full">
+              <Chat currentUserId={currentUser.name} selectedUser={selectedUser} onBack={() => setSelectedUser(null)} />
+            </div>
+          )}
+
+          {isLoggedIn && isMobile && !showGlobalChat && (
+            <div className="fixed bottom-0 left-0 right-0 bg-slate-800/50 backdrop-blur-lg border-t border-white/20 p-2 flex justify-around">
+              <button onClick={() => handlePageChange('home')} className={`relative flex flex-col items-center space-y-1 p-2 rounded-xl transition-colors duration-200 ${currentPage === 'home' ? 'text-blue-400' : 'text-slate-400 hover:bg-slate-700/50'}`}>
+                <Home className="w-6 h-6" />
+                <span className="text-xs font-medium">Home</span>
+              </button>
+              <button onClick={() => handlePageChange('messages')} className={`relative flex flex-col items-center space-y-1 p-2 rounded-xl transition-colors duration-200 ${currentPage === 'messages' ? 'text-blue-400' : 'text-slate-400 hover:bg-slate-700/50'}`}>
+                <Bell className="w-6 h-6" />
+                <span className="text-xs font-medium">Messages</span>
+                {Object.keys(unreadCounts).length > 0 && (
                   <span className="absolute top-1 right-1 bg-red-500 text-white text-xs font-bold rounded-full h-4 w-4 flex items-center justify-center">{Object.keys(unreadCounts).length}</span>
                 )}
-            </button>
-            <button onClick={() => setShowGlobalChat(true)} className={`relative flex flex-col items-center space-y-1 p-2 rounded-xl transition-colors duration-200 ${showGlobalChat ? 'text-green-400' : 'text-slate-400 hover:bg-slate-700/50'}`}>
-              <span className="w-6 h-6 flex items-center justify-center"><svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M10 12h4" /><path d="M12 10v4" /></svg></span>
-              <span className="text-xs font-medium">Global Chat</span>
-            </button>
-            <button onClick={() => handlePageChange('settings')} className={`relative flex flex-col items-center space-y-1 p-2 rounded-xl transition-colors duration-200 ${currentPage === 'settings' ? 'text-blue-400' : 'text-slate-400 hover:bg-slate-700/50'}`}>
-              <Settings className="w-6 h-6" />
-              <span className="text-xs font-medium">Settings</span>
-            </button>
-          </div>
-        )}
+              </button>
+              <button onClick={() => setShowGlobalChat(true)} className={`relative flex flex-col items-center space-y-1 p-2 rounded-xl transition-colors duration-200 ${showGlobalChat ? 'text-green-400' : 'text-slate-400 hover:bg-slate-700/50'}`}>
+                <span className="w-6 h-6 flex items-center justify-center"><svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M10 12h4" /><path d="M12 10v4" /></svg></span>
+                <span className="text-xs font-medium">Global Chat</span>
+              </button>
+              <button onClick={() => handlePageChange('settings')} className={`relative flex flex-col items-center space-y-1 p-2 rounded-xl transition-colors duration-200 ${currentPage === 'settings' ? 'text-blue-400' : 'text-slate-400 hover:bg-slate-700/50'}`}>
+                <Settings className="w-6 h-6" />
+                <span className="text-xs font-medium">Settings</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </ErrorBoundary>
   );
 };
 
