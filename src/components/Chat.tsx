@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Send, Camera, Trash2, Edit2, Mic, ArrowLeft } from 'lucide-react';
 import { collection, addDoc, onSnapshot, serverTimestamp, orderBy, query, deleteDoc, doc, setDoc } from 'firebase/firestore';
 import { db } from './config/firebaseConfig';
+import Webcam from 'react-webcam';
 
 const appId = 'default-app-id';
 const CLOUDINARY_CLOUD_NAME = 'demhlpk5q';
@@ -59,7 +60,7 @@ const Chat: React.FC<ChatProps> = ({ currentUserId, currentUserName, selectedUse
   const getConversationId = () => {
     const otherUserId = selectedUser.id || selectedUser.name;
     const ids = [currentUserId, otherUserId].sort();
-    return ids.join('_'); 
+    return ids.join('_');
   };
 
   const conversationId = getConversationId();
@@ -114,7 +115,7 @@ const Chat: React.FC<ChatProps> = ({ currentUserId, currentUserName, selectedUse
 
       const messageData = {
         senderId: currentUserId,
-        senderName: currentUserName || currentUserId, 
+        senderName: currentUserName || currentUserId,
         text: newMessage.trim(),
         createdAt: serverTimestamp()
       };
@@ -136,7 +137,7 @@ const Chat: React.FC<ChatProps> = ({ currentUserId, currentUserName, selectedUse
 
   const messageData: any = {
     senderId: currentUserId,
-    senderName: currentUserName || currentUserId, 
+    senderName: currentUserName || currentUserId,
     text: '',
     createdAt: serverTimestamp()
   };
@@ -191,6 +192,31 @@ const Chat: React.FC<ChatProps> = ({ currentUserId, currentUserName, selectedUse
           handleCloseCamera();
         }
       }, 'image/jpeg', 0.95);
+    }
+  };
+
+  const webcamRef = useRef<Webcam>(null);
+  const [captured, setCaptured] = useState(false);
+  const capture = async () => {
+    if (!webcamRef.current) return;
+    const imageSrc = webcamRef.current.getScreenshot();
+
+    if (imageSrc) {
+      try {
+        const response = await fetch(imageSrc);
+        const blob = await response.blob();
+
+        setCaptured(true);
+
+        await uploadMediaToCloudinary(blob, 'image');
+
+        setCaptured(false);
+
+        handleCloseCamera();
+      } catch (error) {
+        console.error('Erreur lors de la capture de la photo :', error);
+        setCaptured(false);
+      }
     }
   };
 
@@ -427,9 +453,30 @@ const Chat: React.FC<ChatProps> = ({ currentUserId, currentUserName, selectedUse
               </svg>
             </button>
             {cameraMode === 'photo' ? (
-              <button onClick={handleCapturePhoto} className="p-8 bg-white hover:bg-gray-100 rounded-full transition-all shadow-xl">
-                <Camera className="w-10 h-10 text-black" />
-              </button>
+              <div className="flex flex-col items-center justify-center flex-1">
+                {!captured ? (
+                  <>
+                    <Webcam
+                      audio={false}
+                      ref={webcamRef}
+                      screenshotFormat="image/jpeg"
+                      videoConstraints={{ facingMode: "user" }}
+                      className="rounded-xl shadow-lg max-w-full h-auto border-4 border-white/20"
+                    />
+                    <button
+                      onClick={capture}
+                      className="mt-4 p-6 bg-white hover:bg-gray-200 rounded-full transition-colors shadow-lg"
+                    >
+                      <Camera className="w-8 h-8 text-black" />
+                    </button>
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center justify-center">
+                    <p className="text-white text-sm mb-2">Photo capturée et envoi en cours...</p>
+                    <div className="loader border-t-4 border-green-500 rounded-full w-10 h-10 animate-spin"></div>
+                  </div>
+                )}
+              </div>
             ) : (
               <button onClick={isRecordingVideo ? handleStopVideoRecording : handleStartVideoRecording} className={`p-8 rounded-full transition-all shadow-xl ${isRecordingVideo ? 'bg-red-600 hover:bg-red-700' : 'bg-red-500 hover:bg-red-600'}`}>
                 {isRecordingVideo ? (
@@ -447,9 +494,7 @@ const Chat: React.FC<ChatProps> = ({ currentUserId, currentUserName, selectedUse
       )}
 
       <div className="flex items-center space-x-3 pb-4 border-b border-white/20">
-        <button onClick={onBack} className="text-white hover:text-blue-400 transition-colors">
-          <ArrowLeft className="w-6 h-6" />
-        </button>
+
         <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold">
           {selectedUser.name[0].toUpperCase()}
         </div>

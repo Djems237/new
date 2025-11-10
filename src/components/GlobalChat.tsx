@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Send, Camera, Trash2, Edit2, Mic } from 'lucide-react';
 import { getFirestore, doc, onSnapshot, collection, addDoc, serverTimestamp, setDoc, deleteDoc } from 'firebase/firestore';
 import { db, storage } from './config/firebaseConfig';
+import Webcam from 'react-webcam';
 
 const appId = 'default-app-id';
 const CLOUDINARY_CLOUD_NAME = 'demhlpk5q';
@@ -45,7 +46,6 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat
   const [cameraActive, setCameraActive] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const recordTimerRef = useRef<NodeJS.Timeout | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -99,20 +99,71 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat
   const handleCameraClick = () => {
     setShowCameraOptions(!showCameraOptions);
   };
+  const webcamRef = useRef<Webcam>(null);
+  const [captured, setCaptured] = useState(false);
+
+  const capture = async () => {
+    if (!webcamRef.current) return;
+    const imageSrc = webcamRef.current.getScreenshot();
+
+    if (imageSrc) {
+      try {
+        const response = await fetch(imageSrc);
+        const blob = await response.blob();
+
+        // Afficher un état "photo capturée"
+        setCaptured(true);
+
+        // Upload vers Cloudinary + Firebase
+        await uploadMediaToCloudinary(blob, true);
+
+        // ✅ Réinitialiser l’état après envoi
+        setCaptured(false);
+
+        // Fermer la caméra après la capture
+        handleCloseCamera();
+      } catch (error) {
+        console.error('Erreur lors de la capture de la photo :', error);
+        setCaptured(false); // remettre à false même en cas d’erreur
+      }
+    }
+  };
+
+
 
   const handleOpenCamera = async (mode: 'photo' | 'video') => {
     setCameraMode(mode);
     setShowCameraOptions(false);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'user' }, 
-        audio: mode === 'video' 
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user' },
+        audio: mode === 'video'
       });
       streamRef.current = stream;
-      setCameraActive(true);
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+
+        // Attendre que la vidéo soit vraiment prête avec vérification
+        await new Promise<void>((resolve) => {
+          const video = videoRef.current;
+          if (!video) return resolve();
+
+          const checkReady = () => {
+            if (video.readyState >= 2) { // HAVE_CURRENT_DATA ou plus
+              video.play().then(() => resolve());
+            }
+          };
+
+          if (video.readyState >= 2) {
+            checkReady();
+          } else {
+            video.onloadedmetadata = checkReady;
+          }
+        });
       }
+
+      setCameraActive(true);
     } catch (error) {
       console.error('Erreur accès caméra:', error);
       alert('Impossible d\'accéder à la caméra. Vérifiez les permissions.');
@@ -123,11 +174,19 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat
     if (canvasRef.current && videoRef.current) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
+
+      // CORRECTION : Vérifier que les dimensions sont valides
+      if (video.videoWidth === 0 || video.videoHeight === 0) {
+        console.error('Vidéo pas prête, dimensions:', video.videoWidth, video.videoHeight);
+        alert('La caméra n\'est pas encore prête. Réessayez dans un instant.');
+        return;
+      }
+
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.drawImage(video, 0, 0);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         canvas.toBlob(async (blob) => {
           if (blob) {
             await uploadMediaToCloudinary(blob, true);
@@ -143,19 +202,19 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat
       videoChunksRef.current = [];
       const recorder = new MediaRecorder(streamRef.current);
       videoRecorderRef.current = recorder;
-      
+
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
           videoChunksRef.current.push(e.data);
         }
       };
-      
+
       recorder.onstop = async () => {
         const videoBlob = new Blob(videoChunksRef.current, { type: 'video/webm' });
         await uploadMediaToCloudinary(videoBlob, false);
         handleCloseCamera();
       };
-      
+
       recorder.start();
       setIsRecordingVideo(true);
       setVideoRecordTime(0);
@@ -201,7 +260,7 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat
     const xhr = new XMLHttpRequest();
     xhrRef.current = xhr;
     xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${isImage ? 'image' : 'video'}/upload`, true);
-    
+
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
         const progress = (event.loaded / event.total) * 100;
@@ -240,14 +299,6 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat
     };
 
     xhr.send(formData);
-  };
-  //bien
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const isImage = file.type.startsWith('image/');
-      await uploadMediaToCloudinary(file, isImage);
-    }
   };
 
   const handleCancelUpload = () => {
@@ -357,9 +408,10 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat
               playsInline
               muted
               className="w-full h-full object-cover"
+              style={{ transform: 'scaleX(-1)' }}
             />
             <canvas ref={canvasRef} style={{ display: 'none' }} />
-            
+
             {isRecordingVideo && (
               <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-red-600 px-4 py-2 rounded-full flex items-center space-x-2">
                 <div className="w-3 h-3 bg-white rounded-full animate-pulse" />
@@ -367,53 +419,65 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat
               </div>
             )}
           </div>
-          
+
           <div className="bg-slate-900 p-4 flex items-center justify-center space-x-4">
             <button
               onClick={handleCloseCamera}
               className="p-4 bg-gray-600 hover:bg-gray-700 rounded-full text-white transition-colors"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M18 6 6 18"/>
-                <path d="m6 6 12 12"/>
+                <path d="M18 6 6 18" />
+                <path d="m6 6 12 12" />
               </svg>
             </button>
-            
+
             {cameraMode === 'photo' ? (
-              <button
-                onClick={handleCapturePhoto}
-                className="p-6 bg-white hover:bg-gray-200 rounded-full transition-colors shadow-lg"
-              >
-                <Camera className="w-8 h-8 text-black" />
-              </button>
+              <div className="flex flex-col items-center justify-center flex-1">
+                {!captured ? (
+                  <>
+                    <Webcam
+                      audio={false}
+                      ref={webcamRef}
+                      screenshotFormat="image/jpeg"
+                      videoConstraints={{ facingMode: "user" }}
+                      className="rounded-xl shadow-lg max-w-full h-auto border-4 border-white/20"
+                    />
+                    <button
+                      onClick={capture}
+                      className="mt-4 p-6 bg-white hover:bg-gray-200 rounded-full transition-colors shadow-lg"
+                    >
+                      <Camera className="w-8 h-8 text-black" />
+                    </button>
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center justify-center">
+                    <p className="text-white text-sm mb-2">Photo capturée et envoi en cours...</p>
+                    <div className="loader border-t-4 border-green-500 rounded-full w-10 h-10 animate-spin"></div>
+                  </div>
+                )}
+              </div>
             ) : (
               <button
                 onClick={isRecordingVideo ? handleStopVideoRecording : handleStartVideoRecording}
-                className={`p-6 rounded-full transition-colors shadow-lg ${
-                  isRecordingVideo ? 'bg-red-600 hover:bg-red-700' : 'bg-red-500 hover:bg-red-600'
-                }`}
+                className={`p-6 rounded-full transition-colors shadow-lg ${isRecordingVideo ? 'bg-red-600 hover:bg-red-700' : 'bg-red-500 hover:bg-red-600'
+                  }`}
               >
                 {isRecordingVideo ? (
                   <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="white">
-                    <rect width="12" height="12" x="6" y="6" rx="2"/>
+                    <rect width="12" height="12" x="6" y="6" rx="2" />
                   </svg>
                 ) : (
                   <div className="w-8 h-8 bg-white rounded-full" />
                 )}
               </button>
             )}
-            
+
             <div className="w-16" />
           </div>
         </div>
       )}
 
       <div className="flex items-center space-x-2 pb-4 border-b border-white/20">
-        <button onClick={onBack} className="md:hidden text-white hover:text-blue-400">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M19 12H5M12 19l-7-7 7-7" />
-          </svg>
-        </button>
         <div className="flex-shrink-0 w-10 h-10 rounded-full bg-green-500 flex items-center justify-center text-white font-bold">
           G
         </div>
@@ -509,14 +573,14 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat
 
       <div className="flex items-center space-x-2 mt-2 bg-slate-900/60 rounded-xl p-2 shadow-inner border border-green-600 relative">
         <div className="relative">
-          <button 
-            type="button" 
-            onClick={handleCameraClick} 
+          <button
+            type="button"
+            onClick={handleCameraClick}
             className="p-3 bg-slate-700 rounded-xl text-white shadow-lg hover:bg-slate-600 transition-colors flex-shrink-0"
           >
             <Camera className="w-5 h-5" />
           </button>
-          
+
           {showCameraOptions && (
             <div className="absolute bottom-full mb-2 left-0 flex flex-col space-y-2 bg-slate-800 p-2 rounded-lg shadow-xl border border-white/20">
               <button
@@ -532,8 +596,8 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat
                 title="Enregistrer une vidéo"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="m22 8-6 4 6 4V8Z"/>
-                  <rect width="14" height="12" x="2" y="6" rx="2" ry="2"/>
+                  <path d="m22 8-6 4 6 4V8Z" />
+                  <rect width="14" height="12" x="2" y="6" rx="2" ry="2" />
                 </svg>
               </button>
             </div>
@@ -548,14 +612,14 @@ const GlobalChat = ({ currentUserId, currentUserName, onBack, onStartPrivateChat
         >
           <Mic className="w-5 h-5" />
         </button>
-        <input 
-          type="text" 
-          value={newMessage} 
-          onChange={e => setNewMessage(e.target.value)} 
+        <input
+          type="text"
+          value={newMessage}
+          onChange={e => setNewMessage(e.target.value)}
           onKeyPress={handleKeyPress}
-          placeholder="Write a message..." 
-          className="flex-1 min-w-0 pl-4 pr-3 py-2 border border-slate-600 rounded-xl bg-slate-800/50 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" 
-          disabled={recording} 
+          placeholder="Write a message..."
+          className="flex-1 min-w-0 pl-4 pr-3 py-2 border border-slate-600 rounded-xl bg-slate-800/50 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+          disabled={recording}
         />
         <button
           type="button"
